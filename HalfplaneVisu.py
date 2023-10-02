@@ -2,35 +2,101 @@ import numpy as np
 import matplotlib.pyplot as plt
 from mpl_toolkits.axes_grid1.inset_locator import InsetPosition
 from mpl_toolkits.axes_grid1.parasite_axes import HostAxes
-
+from IPython import get_ipython
 #import mpl_toolkits.axisartist as AA
 
-def plot_cart_polar(theta, r, ax_cart=None, ax_polar=None, **kwargs):
-    """Plots Curve with the left side in Polar and the right side in cartesian coordinates
-    Args:
-        ax_cart:  The cartesian axes object
-        ax_polar: The polar axes object
-        theta:    Angle values in radian
-        r:        Distance values
-        kwargs: properties for plot functions
-    """
-    theta = np.array(theta).squeeze()
-    if(ax_cart != None):
-        pos_theta_indices = np.where(theta >= 0)
-        x_cart = np.rad2deg(theta[pos_theta_indices])
-        y_cart= r[pos_theta_indices]
-        ax_cart.plot(x_cart,y_cart, **kwargs)
-    if(ax_polar != None):
-        neg_theta_indices = np.where(theta <= 0)
-        theta_polar = theta[neg_theta_indices]
-        r_polar = r[neg_theta_indices]
-        ax_polar.plot(theta_polar,r_polar, **kwargs)
-
-def plot_cart(theta, r, ax_cart, **kwargs):
-    # just convert radians to degrees before plotting
-    x_cart = np.rad2deg(theta)
-    y_cart = r
-    ax_cart.plot(x_cart,y_cart, **kwargs)
+class HalfplaneAxes:
+    def __init__(self,fig = None, cart = True, polar = False, cart2 = False,
+                 theta_max=90, theta_tick_dist=15,r_max = 115, r_min=-15):
+        # disable tight bbox from Ipython magic
+        get_ipython().run_line_magic('config',"InlineBackend.print_figure_kwargs = {'bbox_inches':None}")
+        
+        # make sure there is a figure
+        if(fig == None):
+            fig = plt.figure(figsize=(12,8))
+        self.fig = fig
+        
+        # make sure there is at least one axes. if neither polar nor cart is specified, default to cartesian plot
+        if(polar == False):
+            cart = True
+        if(cart == False):
+            polar = True
+            
+        self.cart = cart
+        self.polar = polar
+        self.cart2 = cart2
+        
+        # create the axes and store them in member variables
+        (self.ax_cart,
+         self.ax_polar,
+         self.ax_cart2) = create_axes_CPlane(fig, cart, polar, cart2, theta_max, theta_tick_dist, r_max, r_min)
+        plt.close(fig)
+        # create a dictionary of lines plotted to the different axes: one for combined cart/polar and one for the auxilary axis
+        # key is the label, value is a line-object for the aus plots and a dictionary of line objects (polar,cart) for the main plots
+        self.plots = {}
+        self.plots_aux = {}
+        
+    def get_axes_handles(self):
+        return self.ax_cart, self.ax_polar, self.ax_cart2
+    
+    def plot(self, theta, r, label, **kwargs):
+        theta = np.array(theta).squeeze()
+        if(self.cart == True):
+            if(self.polar == True):
+                # split up into left polar and right cartesian plot
+                # left side:
+                pos_theta_indices = np.where(theta >= 0)
+                x_cart = np.rad2deg(theta[pos_theta_indices])
+                y_cart= r[pos_theta_indices]
+                
+                # right side:
+                neg_theta_indices = np.where(theta <= 0)
+                theta_polar = theta[neg_theta_indices]
+                r_polar = r[neg_theta_indices]
+                
+                # test, if the label was already plotted:
+                if label in self.plots:
+                    # line data needs to be updated
+                    self.plots[label]['cart'].set_data(x_cart,y_cart)
+                    self.plots[label]['polar'].set_data(theta_polar, r_polar)
+                else:
+                    # new plots
+                    line_cart = self.ax_cart.plot(x_cart, y_cart, label=label, **kwargs)
+                    line_polar = self.ax_polar.plot(theta_polar, r_polar, label=label, **kwargs)
+                    # add this plot to the dictionary
+                    self.plots[label] = {'cart':line_cart[0], 'polar':line_polar[0]}
+            else:
+                # only plot cart
+                x_cart = np.rad2deg(theta)
+                y_cart = r
+                if label in self.plots:
+                    self.plots[label]['cart'].set_data(x_cart,y_cart)
+                else:
+                    line_cart = self.ax_cart.plot(x_cart, y_cart, label=label, **kwargs)
+                    self.plots[label] = {'cart':line_cart[0], 'polar':None}
+        else:
+            # only polar
+            if label in self.plots:
+                self.plots[label]['polar'].set_data(theta,r)
+            else:
+                line_polar = self.ax_polar.plot(theta, r, label=label, **kwargs)
+                self.plots[label] = {'cart':None, 'polar':line_polar[0]}
+    
+    def plot_aux(self, theta,aux, label, **kwargs):
+        if(self.polar == True and self.cart == True):
+            # only plot to the right side
+            pos_theta_indices = np.where(theta >= 0)
+            x_cart = np.rad2deg(theta[pos_theta_indices])
+            y_cart= aux[pos_theta_indices]
+        else:
+            x_cart = np.rad2deg(theta)
+            y_cart = aux
+        
+        if label in self.plots_aux:
+            self.plots_aux[label].set_data(x_cart,y_cart)
+        else:
+            line_cart = self.ax_cart2.plot(x_cart, y_cart, label=label, **kwargs)
+            self.plots_aux[label] = line_cart
 
 def half2cplanes(LVK,theta,phi):
     # concatenate half planes from LID to complete C-planes
@@ -51,19 +117,14 @@ def half2cplanes(LVK,theta,phi):
     phi_c = phi[:,:phi_half_idx]
     return LVK_c, theta_c, phi_c
 
-def create_axes_LID(fig, cart, polar, cart2, theta_max=90, theta_tick_dist=15,r_max = 114, r_min=-15):
-    # make sure there is at least one axes to be drawn
-    if(polar == False):
-        cart = True
-    if(cart == False):
-        polar = True
-
-    plot_limits =  [0.1, 0.1, 0.8, 0.8] # realtive to figure size
+def create_axes_CPlane(fig, cart, polar, cart2, theta_max, theta_tick_dist,r_max, r_min):
+        
+    plot_limits =  [0.05, 0.05, 0.9, 0.9] # realtive to figure size
     
     # create cartesian axes
     ax_cart = fig.add_axes(plot_limits, axes_class=HostAxes)
     # create polar axes, is inset later
-    ax_polar = fig.add_axes([0, 0, 1, 1], polar=True)
+    ax_polar = fig.add_axes(plot_limits, polar=True)
     
     # prepare cartesian axes
     ax_cart.set_zorder(2)
@@ -165,6 +226,7 @@ def create_axes_LID(fig, cart, polar, cart2, theta_max=90, theta_tick_dist=15,r_
     polar_bottom_pos = (- 0.25 * polar_height) + neg_y_offest
     ip = InsetPosition(ax_cart,[0 , polar_bottom_pos, polar_width, polar_height])
     ax_polar.set_axes_locator(ip)
+    
     
     ax_cart2 = None
     # create second y-axis next to the cartesian axes
