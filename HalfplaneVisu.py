@@ -6,7 +6,7 @@ from IPython import get_ipython
 #import mpl_toolkits.axisartist as AA
 
 class HalfplaneAxes:
-    def __init__(self,fig = None, cart = True, polar = False, cart2 = False,
+    def __init__(self,fig = None, cart = True, polar = False, cart_aux = False, label_aux = None,
                  theta_max=90, theta_tick_dist=15,r_max = 115, r_min=-15):
         # disable tight bbox from Ipython magic
         get_ipython().run_line_magic('config',"InlineBackend.print_figure_kwargs = {'bbox_inches':None}")
@@ -24,20 +24,23 @@ class HalfplaneAxes:
             
         self.cart = cart
         self.polar = polar
-        self.cart2 = cart2
+        self.cart_aux = cart_aux
         
         # create the axes and store them in member variables
         (self.ax_cart,
          self.ax_polar,
-         self.ax_cart2) = create_axes_CPlane(fig, cart, polar, cart2, theta_max, theta_tick_dist, r_max, r_min)
+         self.ax_cart_aux) = create_axes_cplane(fig, cart, polar, cart_aux, label_aux, theta_max, theta_tick_dist, r_max, r_min)
         plt.close(fig)
         # create a dictionary of lines plotted to the different axes: one for combined cart/polar and one for the auxilary axis
         # key is the label, value is a line-object for the aus plots and a dictionary of line objects (polar,cart) for the main plots
         self.plots = {}
         self.plots_aux = {}
         
+        # set a variable for the auxilary axis interface
+        self.aux_center = 0
+        
     def get_axes_handles(self):
-        return self.ax_cart, self.ax_polar, self.ax_cart2
+        return self.ax_cart, self.ax_polar, self.ax_cart_aux
     
     def plot(self, theta, r, label, **kwargs):
         theta = np.array(theta).squeeze()
@@ -82,7 +85,8 @@ class HalfplaneAxes:
                 line_polar = self.ax_polar.plot(theta, r, label=label, **kwargs)
                 self.plots[label] = {'cart':None, 'polar':line_polar[0]}
     
-    def plot_aux(self, theta,aux, label, **kwargs):
+    def plot_aux(self, theta, aux, label, **kwargs):
+        theta = np.array(theta).squeeze()
         if(self.polar == True and self.cart == True):
             # only plot to the right side
             pos_theta_indices = np.where(theta >= 0)
@@ -95,31 +99,43 @@ class HalfplaneAxes:
         if label in self.plots_aux:
             self.plots_aux[label].set_data(x_cart,y_cart)
         else:
-            line_cart = self.ax_cart2.plot(x_cart, y_cart, label=label, **kwargs)
-            self.plots_aux[label] = line_cart
+            line_cart = self.ax_cart_aux.plot(x_cart, y_cart, label=label, **kwargs)
+            self.plots_aux[label] = line_cart[0]
+            
+        self.__rescale_aux()
+    
 
-def half2cplanes(LVK,theta,phi):
-    # concatenate half planes from LID to complete C-planes
-    # check if phi-values include 180 degrees (pi): 2 phi-cuts form plane
-    # return LVK composed of C-Planes: indexed with: [c,theta]
-    phi_half_idx = np.where(phi.squeeze() == np.pi)[0][0] # maybe is close?
-    assert(phi_half_idx)
-    # split LVK at phi_half_idx: (transpose to index phi first)
-    r_cuts = LVK.T[:phi_half_idx] # straight forward, includes theta = 0
-    # left cuts are more complicated:
-    # start at half_idx, limit to 2*half_idx to keep the same size as r_cuts
-    # remove theta=0, since it is already in r_cuts
-    l_cuts = LVK.T[phi_half_idx : 2*phi_half_idx,1:]
-    l_cuts = np.flip(l_cuts, axis=1)# needs to be flipped
-    LVK_c = np.hstack((l_cuts,r_cuts)) # concatenate
-    # create new theta and phi versions for c-planes
-    theta_c = np.vstack((-np.flip(theta[1:,:]), theta))
-    phi_c = phi[:,:phi_half_idx]
-    return LVK_c, theta_c, phi_c
-
-def create_axes_CPlane(fig, cart, polar, cart2, theta_max, theta_tick_dist,r_max, r_min):
+    def aux_set_center(self,center):
+        self.aux_center = center
+        self.__rescale_aux()
+    
+    def aux_set_label(self,label):
+        self.ax_cart_aux.set_ylabel(axis_label, size=14, labelpad=-22, y=1.06, rotation=0) # -38 for rel i0
+    
+    def __rescale_aux(self):
+        if self.ax_cart_aux == None:
+            return
+        self.ax_cart_aux.relim() # updates the dataLim member for the current data
+        damp_y2 = 0.8 # damp so that the plots to ax_cart_aux don't get too tight
+        ylim = np.array(self.ax_cart.get_ylim())
+        ratio_ylim = ylim[0] / ylim[1] # min / max
         
-    plot_limits =  [0.05, 0.05, 0.9, 0.9] # realtive to figure size
+        #ylim2 = np.array(self.ax_cart_aux.get_ylim())
+        ylim2 = np.array(self.ax_cart_aux.dataLim).T[1]
+        ylim2 -= self.aux_center # substract value to center, now min max are centered around 0
+        ylim2_min = ylim2[0]
+        ylim2_max = ylim2[1]
+        if(np.abs(ylim2_max) > np.abs(ylim2_min)): # if max lim is bigger than min lim
+            ylim2_max = ylim2_max / damp_y2
+            ylim2_min = ylim2_max * ratio_ylim
+        else:
+            ylim2_min = ylim2_min / damp_y2
+            ylim2_max = ylim2_min / ratio_ylim
+        self.ax_cart_aux.set_ylim(bottom = ylim2_min + self.aux_center, top = ylim2_max + self.aux_center)
+
+
+def create_axes_cplane(fig, cart, polar, cart_aux, label_aux, theta_max, theta_tick_dist,r_max, r_min):
+    plot_limits =  [0.05, 0.05, 0.80, 0.9] # realtive to figure size
     
     # create cartesian axes
     ax_cart = fig.add_axes(plot_limits, axes_class=HostAxes)
@@ -136,7 +152,7 @@ def create_axes_CPlane(fig, cart, polar, cart2, theta_max, theta_tick_dist,r_max
     ax_cart.spines['top'].set_visible(False)
     ax_cart.spines['right'].set_visible(False)
     # label axes
-    ax_cart.set_xlabel(r'$\theta$ / °', size=14, labelpad=-24, x=1.03)
+    ax_cart.set_xlabel(r'$\theta$ / °', size=14, labelpad=-24, x=1.04)
     ax_cart.set_ylabel('$I$ / $cd$', size=14, labelpad=-5, y=1.02, rotation=0)
     # arrow format
     arrow_fmt = dict(markersize=4, color='black', clip_on=False)
@@ -228,12 +244,15 @@ def create_axes_CPlane(fig, cart, polar, cart2, theta_max, theta_tick_dist,r_max
     ax_polar.set_axes_locator(ip)
     
     
-    ax_cart2 = None
+    ax_cart_aux = None
     # create second y-axis next to the cartesian axes
-    if(cart2 == True):
-        ax_cart2 = ax_cart.twinx()
-        ax_cart2.spines['right'].set_position(('axes', 1.07))
-        ax_cart2.plot((1.07), (1), marker='^', transform=ax_cart2.transAxes, **arrow_fmt)
-        ax_cart2.tick_params(axis='x', which='minor', bottom=False) # strangely host minor ticks are visible otherwise 
-        ax_cart2.get_yaxis().get_major_formatter().set_useOffset(False)
-    return ax_cart, ax_polar, ax_cart2
+    if(cart_aux == True):
+        ax_cart_aux = ax_cart.twinx()
+        ax_cart_aux.spines['right'].set_position(('axes', 1.08))
+        ax_cart_aux.plot((1.08), (1), marker='^', transform=ax_cart_aux.transAxes, **arrow_fmt)
+        ax_cart_aux.tick_params(axis='x', which='minor', bottom=False) # strangely host minor ticks are visible otherwise 
+        ax_cart_aux.get_yaxis().get_major_formatter().set_useOffset(False)
+        if (label_aux != None):
+            self.ax_cart_aux.set_ylabel(axis_label, size=14, labelpad=-22, y=1.06, rotation=0) # -38 for rel i0
+        
+    return ax_cart, ax_polar, ax_cart_aux
