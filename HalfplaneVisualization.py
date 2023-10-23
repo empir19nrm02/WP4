@@ -20,9 +20,10 @@ class HalfplaneFigure:
         self.plots = {}
         self.plots_aux = {}
         
-    def rescale_aux(self,center):
+    def rescale_aux(self,center,limit):
         if self.ax_cart_aux == None:
             return
+        limit = np.abs(limit)
         self.ax_cart_aux.relim() # updates the dataLim member for the current data
         damp_y2 = 0.8 # damp so that the plots to ax_cart_aux don't get too tight
         ylim_min, ylim_max = np.array(self.ax_cart.get_ylim())
@@ -31,9 +32,9 @@ class HalfplaneFigure:
         #ylim2 = np.array(self.ax_cart_aux.get_ylim())
         ylim2 = np.array(self.ax_cart_aux.dataLim).T[1]
         ylim2 -= center # substract value to center, now min max are centered around 0
-        ylim2_min = ylim2[0]
-        ylim2_max = ylim2[1]
-        if(np.abs(ylim2_max / ylim_max)  > np.abs(ylim2_min / ylim_min)): # which side is more filled out?
+        ylim2_min = np.max((ylim2[0],-limit))
+        ylim2_max = np.min((ylim2[1],limit))
+        if( ylim2_max / ylim_max > ylim2_min / ylim_min ): # which side is more filled out?
             ylim2_max = ylim2_max / damp_y2
             ylim2_min = ylim2_max * ratio_ylim
         else:
@@ -49,8 +50,13 @@ class HalfplaneFigure:
         for plot in self.plots.values():
             line = plot['cart'] if isinstance(plot, dict) else plot
             legend_items.append(line)
+        for line in self.plots_aux.values():
+            legend_items.append(line)
         self.ax_cart.legend(legend_items, [item.get_label() for item in legend_items],
                             loc=loc)
+    
+    def update_theta_max(self,theta_max):
+        pass
 
 class HalfplaneVisu:
     def __init__(self, theta_max=90, theta_tick_dist=15,r_max = 115, r_min=-15):
@@ -65,8 +71,9 @@ class HalfplaneVisu:
         # prepare legend
         self.legend_loc = (0.0,0.0) # location of the legend in axis-coordinates
 
-        # set a variable for the auxilary axis interface
+        # set up variables for the auxilary axis interface
         self.aux_center = 0
+        self.aux_limit = 8
     
     def show_fig(self, cart, polar):
         if(polar == True):
@@ -191,18 +198,27 @@ class HalfplaneVisu:
     
     def aux_set_center(self,center):
         self.aux_center = center
-        self.fig_cart.rescale_aux(center)
-        self.fig_cartpolar.rescale_aux(center)
+        self.fig_cart.rescale_aux(center,self.aux_limit)
+        self.fig_cartpolar.rescale_aux(center,self.aux_limit)
     
+    def aux_set_limit(self,limit):
+        self.aux_limit = limit
+        self.fig_cart.rescale_aux(self.center,limit)
+        self.fig_cartpolar.rescale_aux(self.center,limit)
+        
+        
     def aux_set_label(self,label):
-        self.fig_cart.ax_cart_aux.set_ylabel(axis_label, size=14, labelpad=-22, y=1.06, rotation=0) # -38 for rel i0
-        self.fig_cartpolar.ax_cart_aux.set_ylabel(axis_label, size=14, labelpad=-22, y=1.06, rotation=0) # -38 for rel i0
+        self.fig_cart.ax_cart_aux.set_ylabel(label, size=14, labelpad=-22, y=1.06, rotation=0)
+        self.fig_cartpolar.ax_cart_aux.set_ylabel(label, size=14, labelpad=-22, y=1.06, rotation=0)
 
     def set_legend_loc(self,loc):
         self.legend_loc = loc
         self.fig_cart.update_legend(self.legend_loc)
         self.fig_cartpolar.update_legend(self.legend_loc)
         self.fig_polar.update_legend(self.legend_loc)
+    
+    def set_theta_max(self,theta_max):
+        pass
 
 def create_axes_cplane(fig, cart, polar, cart_aux, theta_max, theta_tick_dist,r_max, r_min):
     plot_limits =  [0.05, 0.05, 0.80, 0.9] # realtive to figure size
