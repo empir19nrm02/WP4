@@ -25,7 +25,7 @@ class HalfplaneFigure:
             return
         limit = np.abs(limit)
         self.ax_cart_aux.relim() # updates the dataLim member for the current data
-        damp_y2 = 0.8 # damp so that the plots to ax_cart_aux don't get too tight
+        damp_y2 = 0.9 # damp so that the plots to ax_cart_aux don't get too tight
         ylim_min, ylim_max = np.array(self.ax_cart.get_ylim())
         ratio_ylim = ylim_min / ylim_max
         
@@ -134,8 +134,7 @@ class HalfplaneVisu:
         theta = np.array(theta).squeeze()
         # fill creates a polygon collection. there is no set_data equivalent so we have to delete and redraw
         # check if there already are fills with the given label, if yes delete them
-        figs = [self.fig_cart, self.fig_polar, self.fig_cartpolar]
-        for fig in figs:
+        for fig in [self.fig_cart, self.fig_polar, self.fig_cartpolar]:
             for collection in itertools.chain(fig.ax_cart.collections, fig.ax_polar.collections):
                 if str(collection.get_label()) == label:
                     collection.remove()
@@ -168,6 +167,18 @@ class HalfplaneVisu:
         fill_object = self.fig_polar.ax_polar.fill_between(theta, r1,r2, label=label, **kwargs)
         self.fig_polar.update_legend(self.legend_loc)
     
+    def clear(self):
+        for fig in [self.fig_cart, self.fig_polar, self.fig_cartpolar]:
+            for collection in itertools.chain(fig.ax_cart.collections, fig.ax_polar.collections):
+                collection.remove()
+                del collection
+            for line in itertools.chain(fig.ax_cart.lines, fig.ax_polar.lines):
+                if str(line.get_label()) != '_arrow':
+                    line.remove()
+                    del line
+            # clear label list
+            fig.plots.clear()
+    
     def plot_aux(self, theta, aux, label, **kwargs):
         theta = np.array(theta).squeeze()
         
@@ -196,6 +207,17 @@ class HalfplaneVisu:
             
         self.aux_set_center(self.aux_center)
     
+    def clear_aux(self):
+        for fig in [self.fig_cart, self.fig_cartpolar]:
+            # clear lines
+            for line in fig.ax_cart_aux.lines:
+                if str(line.get_label()) != '_arrow':
+                    line.remove()
+                    del line
+
+            # clear labels
+            fig.plots_aux.clear()
+
     def aux_set_center(self,center):
         self.aux_center = center
         self.fig_cart.rescale_aux(center,self.aux_limit)
@@ -208,8 +230,9 @@ class HalfplaneVisu:
         
         
     def aux_set_label(self,label):
-        self.fig_cart.ax_cart_aux.set_ylabel(label, size=14, labelpad=-22, y=1.06, rotation=0)
-        self.fig_cartpolar.ax_cart_aux.set_ylabel(label, size=14, labelpad=-22, y=1.06, rotation=0)
+        for fig in [self.fig_cart, self.fig_cartpolar]:
+            fig.ax_cart_aux.set_ylabel(label, size=14, rotation=0)
+            fig.ax_cart_aux.yaxis.set_label_coords(1.08, 1.05)
 
     def set_legend_loc(self,loc):
         self.legend_loc = loc
@@ -254,7 +277,7 @@ def create_axes_cplane(fig, cart, polar, cart_aux, theta_max, theta_tick_dist,r_
     bbox = dict(boxstyle="round", ec="white", fc="white", alpha=0.7)
     plt.setp(ax_cart.get_yticklabels(), bbox=bbox)
     plt.setp(ax_cart.get_xticklabels(), bbox=bbox)
-    ax_cart.plot((0), (1), marker='^', transform=ax_cart.get_xaxis_transform(), **arrow_fmt)
+    ax_cart.plot((0), (1), marker='^', transform=ax_cart.get_xaxis_transform(), **arrow_fmt, label='_arrow')
     
     xmax = theta_max + 2
     # prepare polar axes
@@ -335,7 +358,7 @@ def create_axes_cplane(fig, cart, polar, cart_aux, theta_max, theta_tick_dist,r_
     if(cart_aux == True):
         ax_cart_aux = ax_cart.twinx()
         ax_cart_aux.spines['right'].set_position(('axes', 1.08))
-        ax_cart_aux.plot((1.08), (1), marker='^', transform=ax_cart_aux.transAxes, **arrow_fmt)
+        ax_cart_aux.plot((1.08), (1), marker='^', transform=ax_cart_aux.transAxes, **arrow_fmt, label='_arrow')
         ax_cart_aux.tick_params(axis='x', which='minor', bottom=False) # strangely host minor ticks are visible otherwise 
         ax_cart_aux.get_yaxis().get_major_formatter().set_useOffset(False)
         
